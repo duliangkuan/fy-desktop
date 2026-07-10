@@ -12,7 +12,7 @@ function loadConfig() {
   try {
     return JSON.parse(fs.readFileSync(configPath(), "utf-8"));
   } catch {
-    return { apiKey: "", baseUrl: "http://115.29.233.78:3100" };
+    return { apiKey: "", baseUrl: "https://api.dufengyun.xyz" };
   }
 }
 function saveConfig(cfg) {
