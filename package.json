@@ -1,6 +1,6 @@
 {
   "name": "fy-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "风云AI工具站 桌面版",
   "main": "main.js",
   "scripts": {
@@ -11,5 +11,30 @@
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.fengyun.aitools",
+    "productName": "风云AI工具站",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "toolbar.html",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "风云AI工具站"
+    }
   }
 }

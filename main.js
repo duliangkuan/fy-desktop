@@ -4,7 +4,7 @@ const path = require("path");
 const fs = require("fs");
 
 // 线上网站地址（改内容/课程/证书/UI 只需在网站侧 deploy，桌面端自动同步）
-const SITE_URL = process.env.FY_SITE_URL || "https://fy-platform.vercel.app";
+const SITE_URL = process.env.FY_SITE_URL || "https://fy.dufengyun.xyz";
 const TOOLBAR_H = 56;
 
 const configPath = () => path.join(app.getPath("userData"), "config.json");
@@ -38,6 +38,9 @@ function createWindow() {
   // 下方加载完整线上网站
   siteView = new WebContentsView();
   win.contentView.addChildView(siteView);
+  // 加桌面标识，网站据此隐藏「下载 App」入口，避免 App 里再下 App
+  const ua = siteView.webContents.getUserAgent() + " FYDesktop/1.0";
+  siteView.webContents.setUserAgent(ua);
   siteView.webContents.loadURL(SITE_URL);
 
   const layout = () => {
