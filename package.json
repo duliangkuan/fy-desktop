@@ -25,6 +25,16 @@
       "renderer/**",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "vendor-node/node.exe",
+        "to": "node/node.exe"
+      },
+      {
+        "from": "relay-worker.js",
+        "to": "relay-worker.js"
+      }
+    ],
     "win": {
       "target": [
         "nsis"

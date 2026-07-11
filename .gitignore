@@ -3,3 +3,4 @@ dist/
 _vendor/
 _vendor/
 cli-bundle/
+vendor-node/

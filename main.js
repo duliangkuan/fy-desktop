@@ -29,6 +29,38 @@ function saveConfig(cfg) {
 }
 
 let win;
+let cliProxyPort = 0; // 本地转发代理端口（CC 走它，见 startCliProxy）
+let relayProc = null;
+
+// ⭐本地转发代理跑在独立 node 进程（ELECTRON_RUN_AS_NODE）。
+// 为什么不在 Electron 主进程：主进程内嵌网络栈在 Clash TUN 下 TLS 握手失败（实测），
+// 纯 node 的 https 正常。CC 连本地 http 秒通 → worker 用 node https 转发到网关 + 改写模型名。
+function relayNodeExe() {
+  // 必须用 OpenSSL 的 node（Electron 内嵌 node 是 BoringSSL，在 Clash TUN 下 TLS 握手失败）。
+  // 优先打包随附的 node.exe（resources/node/node.exe），否则回退系统 PATH 的 node。
+  const bundled = path.join(process.resourcesPath, "node", "node.exe");
+  return fs.existsSync(bundled) ? bundled : "node";
+}
+function startCliProxy() {
+  // 打包后 worker 与 node.exe 都在 asar 外的 resources/（外部 node 读不了 asar 内文件）
+  const worker = app.isPackaged
+    ? path.join(process.resourcesPath, "relay-worker.js")
+    : path.join(__dirname, "relay-worker.js");
+  relayProc = spawn(relayNodeExe(), [worker], {
+    env: {
+      ...process.env,
+      RELAY_UPSTREAM: loadConfig().baseUrl || "https://api.dufengyun.xyz",
+      RELAY_MODEL: "claude-sonnet-4-5",
+      RELAY_SMALL: "claude-haiku-4-5",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  relayProc.stdout.on("data", (d) => {
+    const m = String(d).match(/RELAY_LISTENING (\d+)/);
+    if (m) cliProxyPort = Number(m[1]);
+  });
+  relayProc.stderr.on("data", (d) => console.error("[relay] " + d));
+}
 
 function createWindow() {
   const cfg = loadConfig();
@@ -216,9 +248,32 @@ async function launchCli(tool) {
     fs.writeFileSync(path.join(codexHome, "config.toml"), configToml, "utf8");
     toolEnv = [`set "FY_API_KEY=${cfg.apiKey}"`, `set "CODEX_HOME=${codexHome}"`];
   } else {
+    // Claude Code：多个坑一起治，缺一不可（全部经真机端到端验证）——
+    // 1) 走本地转发代理（cliProxyPort），绕开 CC 直连 https 网关在 TUN 下卡死
+    // 2) 指定网关有的模型：CC 默认请求 claude-fable-5，网关没有→503 无限重试卡死
+    // 3) 独立 CLAUDE_CONFIG_DIR + settings.json skipWebFetchPreflight：
+    //    CC 会连 api.anthropic.com 做 WebFetch 域预检，被墙挂 30s
+    // 4) 禁遥测/自动更新：statsig/datadog/sentry/downloads.claude.ai 被墙会拖慢
+    const ccHome = path.join(app.getPath("userData"), "cc-home");
+    fs.mkdirSync(ccHome, { recursive: true });
+    fs.writeFileSync(
+      path.join(ccHome, "settings.json"),
+      JSON.stringify({ skipWebFetchPreflight: true }, null, 2),
+      "utf8"
+    );
+    const baseForCc = cliProxyPort
+      ? `http://127.0.0.1:${cliProxyPort}`
+      : cfg.baseUrl; // 代理没起来的兜底：直连（也许能通）
     toolEnv = [
-      `set "ANTHROPIC_BASE_URL=${cfg.baseUrl}"`,
+      `set "ANTHROPIC_BASE_URL=${baseForCc}"`,
       `set "ANTHROPIC_AUTH_TOKEN=${cfg.apiKey}"`,
+      'set "ANTHROPIC_MODEL=claude-sonnet-4-5"',
+      'set "ANTHROPIC_SMALL_FAST_MODEL=claude-haiku-4-5"',
+      `set "CLAUDE_CONFIG_DIR=${ccHome}"`,
+      'set "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"',
+      'set "DISABLE_AUTOUPDATER=1"',
+      'set "DISABLE_TELEMETRY=1"',
+      'set "DISABLE_ERROR_REPORTING=1"',
     ];
   }
 
@@ -349,6 +404,63 @@ ipcMain.handle("win-ctl", (_e, action) => {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  startCliProxy();
+
+  // FY_NET_TEST=1：诊断 Electron 主进程 https 到网关通不通（3 种方式）
+  if (process.env.FY_NET_TEST) {
+    const dns = require("dns");
+    const tryReq = (label, opts, extra) =>
+      new Promise((r) => {
+        const t0 = Date.now();
+        const rq = https.request(opts, (res) => { res.resume(); r(label + ": " + res.statusCode + " (" + (Date.now() - t0) + "ms)"); });
+        rq.setTimeout(9000, () => { rq.destroy(); r(label + ": TIMEOUT"); });
+        rq.on("error", (e) => r(label + ": ERR " + e.message));
+        rq.end();
+      });
+    (async () => {
+      console.log("NET1 " + (await tryReq("hostname", { host: "api.dufengyun.xyz", port: 443, path: "/", method: "GET" })));
+      const ip = await new Promise((r) => dns.lookup("api.dufengyun.xyz", (e, a) => r(a || "?")));
+      console.log("NET dns.lookup -> " + ip);
+      console.log("NET2 " + (await tryReq("realIP+SNI", { host: "115.29.233.78", servername: "api.dufengyun.xyz", port: 443, path: "/", method: "GET", headers: { host: "api.dufengyun.xyz" } })));
+      app.quit();
+    })();
+    return;
+  }
+
+  // FY_CC_TEST=1：端到端自检——用产品完全一致的内置代理+环境变量跑真 claude.exe，验证出 token
+  if (process.env.FY_CC_TEST) {
+    setTimeout(() => {
+      const cfg = loadConfig();
+      const ccHome = path.join(app.getPath("userData"), "cc-home");
+      fs.mkdirSync(ccHome, { recursive: true });
+      fs.writeFileSync(
+        path.join(ccHome, "settings.json"),
+        JSON.stringify({ skipWebFetchPreflight: true }),
+        "utf8"
+      );
+      const exe = fs.existsSync(bundledPath("cc")) ? bundledPath("cc") : downloadedPath("cc");
+      const env = {
+        ...process.env,
+        HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", NODE_EXTRA_CA_CERTS: "",
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${cliProxyPort}`,
+        ANTHROPIC_AUTH_TOKEN: cfg.apiKey,
+        ANTHROPIC_MODEL: "claude-sonnet-4-5",
+        ANTHROPIC_SMALL_FAST_MODEL: "claude-haiku-4-5",
+        CLAUDE_CONFIG_DIR: ccHome,
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        DISABLE_AUTOUPDATER: "1", DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1",
+      };
+      console.log("SELFTEST proxy=127.0.0.1:" + cliProxyPort + " key=" + (cfg.apiKey || "").slice(0, 8) + " exe=" + exe);
+      const cc = spawn(exe, ["-p", "只回三个字：你好呀", "--dangerously-skip-permissions"], { env, stdio: ["ignore", "pipe", "pipe"] });
+      let out = "";
+      cc.stdout.on("data", (d) => (out += d));
+      cc.stderr.on("data", (d) => process.stderr.write("[cc-err] " + d));
+      cc.on("close", (code) => { console.log("SELFTEST CC_EXIT=" + code + " OUTPUT=[" + out.trim() + "]"); app.quit(); });
+      setTimeout(() => { cc.kill(); console.log("SELFTEST TIMEOUT"); app.quit(); }, 45000);
+    }, 1500);
+    return;
+  }
+
   createWindow();
 
   // UI 自检截图：FY_SHOT=1 npm start → 存 launch/settings 两页 png 后退出
