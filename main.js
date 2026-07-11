@@ -179,25 +179,65 @@ async function launchCli(tool) {
   // 写一个 .bat 启动脚本，绕开「中文安装路径 + 引号嵌套」把命令拼坏的问题。
   // bat 放 ASCII 临时目录（用户名是 ASCII）；内部 chcp 65001 让 cmd 正确识别中文 exe 路径。
   const title = tool === "codex" ? "Codex" : "Claude Code";
-  const envLines =
-    tool === "codex"
-      ? [`set "FY_API_KEY=${cfg.apiKey}"`]
-      : [
-          `set "ANTHROPIC_BASE_URL=${cfg.baseUrl}"`,
-          `set "ANTHROPIC_AUTH_TOKEN=${cfg.apiKey}"`,
-        ];
+
+  // ⭐清空代理环境变量：VPN/Clash 退出后常残留 HTTPS_PROXY 指向已死的本地代理，
+  // 导致 CC(Node) 走坏代理、报 UNKNOWN_CERTIFICATE_VERIFICATION_ERROR。清掉后直连
+  // 网关的合法证书。这是「关了 VPN 仍连不上」的根因修复。
+  const clearProxy = [
+    'set "HTTP_PROXY="',
+    'set "HTTPS_PROXY="',
+    'set "http_proxy="',
+    'set "https_proxy="',
+    'set "ALL_PROXY="',
+    'set "all_proxy="',
+    'set "NODE_EXTRA_CA_CERTS="',
+  ];
+
+  let toolEnv;
+  if (tool === "codex") {
+    // Codex 不认环境变量式 Key，必须用 config.toml 定义 model_provider。
+    // 关键：wire_api="chat"（网关是 chat/completions 兼容，非 responses）、
+    // requires_openai_auth=false（key 非 sk- 前缀）。写进独立 CODEX_HOME 不污染用户已有 ~/.codex。
+    const codexHome = path.join(app.getPath("userData"), "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const base = cfg.baseUrl.replace(/\/+$/, "") + "/v1";
+    const configToml = [
+      'model = "deepseek-ai/DeepSeek-V3.2"',
+      'model_provider = "easycc"',
+      "",
+      "[model_providers.easycc]",
+      'name = "EasyCC"',
+      `base_url = "${base}"`,
+      'env_key = "FY_API_KEY"',
+      'wire_api = "chat"',
+      "requires_openai_auth = false",
+      "",
+    ].join("\n");
+    fs.writeFileSync(path.join(codexHome, "config.toml"), configToml, "utf8");
+    toolEnv = [`set "FY_API_KEY=${cfg.apiKey}"`, `set "CODEX_HOME=${codexHome}"`];
+  } else {
+    toolEnv = [
+      `set "ANTHROPIC_BASE_URL=${cfg.baseUrl}"`,
+      `set "ANTHROPIC_AUTH_TOKEN=${cfg.apiKey}"`,
+    ];
+  }
+
   // chcp 65001 必须在第一行（切 UTF-8 后，后面的中文 exe 路径才被正确读取）；不要加 BOM
   const bat = [
     "@chcp 65001 >nul",
     "@echo off",
     `title ${title}`,
-    ...envLines,
+    ...clearProxy,
+    ...toolEnv,
     `"${exe}"`,
     "",
   ].join("\r\n");
   const batPath = path.join(require("os").tmpdir(), `fy-launch-${tool}.bat`);
   fs.writeFileSync(batPath, bat, "utf8");
-  spawn("cmd.exe", ["/c", "start", title, "cmd", "/k", batPath], {
+  // ⭐start 的第一个参数是窗口标题：必须用带引号的空串 "" 占位。
+  // 之前直接传 title，"Codex"(无空格) 不被自动加引号 → start 把它当程序名去执行
+  // → codex.exe 收到 "/k" 报 unexpected argument。空 "" 占位后 cmd /k 正常执行，标题由 bat 内 title 设。
+  spawn("cmd.exe", ["/c", "start", "", "cmd", "/k", batPath], {
     detached: true,
     shell: false,
     windowsHide: false,

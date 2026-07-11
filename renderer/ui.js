@@ -351,10 +351,11 @@ async function loadNotice() {
 
 async function refreshBinStatus() {
   const st = await window.fy.binStatus();
-  for (const tool of ["cc", "codex"]) {
-    const el = $(`#status-${tool}`);
-    if (st[tool].ready) {
-      el.textContent = st[tool].bundled ? "✓ 已就绪（内置组件）" : "✓ 已就绪";
+  // 仅 CC；Codex 暂下架（新版 responses 协议与国产网关不兼容），状态固定文案由 HTML 写死
+  const el = $("#status-cc");
+  if (el) {
+    if (st.cc.ready) {
+      el.textContent = st.cc.bundled ? "✓ 已就绪（内置组件）" : "✓ 已就绪";
       el.classList.add("ready");
     } else {
       el.textContent = "首次启动将自动下载组件（仅一次）";

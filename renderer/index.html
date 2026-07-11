@@ -85,20 +85,19 @@
           </div>
           <button class="btn btn-launch" data-launch="cc">▶ 启动</button>
         </div>
-        <div class="tool-card" id="card-codex">
+        <div class="tool-card soon" id="card-codex">
           <svg class="tool-icon" viewBox="0 0 24 24"><path d="m7 8-4 4 4 4"/><path d="m17 8 4 4-4 4"/><path d="m14 4-4 16"/></svg>
-          <div class="tool-name">Codex</div>
-          <div class="tool-desc">OpenAI 编程 Agent，擅长快速改 bug、批量重构、命令行自动化</div>
-          <div class="tool-status" id="status-codex">检测中…</div>
-          <div class="dl-wrap" id="dl-codex" hidden>
-            <div class="dl-track"><div class="dl-bar"></div></div>
-            <div class="dl-text">准备中…</div>
-          </div>
-          <button class="btn btn-launch" data-launch="codex">▶ 启动</button>
+          <div class="tool-name">Codex <span class="soon-badge">即将支持</span></div>
+          <div class="tool-desc">OpenAI 编程 Agent。新版已改用 responses 协议，正在适配国产模型网关，敬请期待。</div>
+          <div class="tool-status">暂不可用</div>
+          <button class="btn btn-launch" disabled>即将支持</button>
         </div>
       </div>
       <div class="hint-bar" id="launchHint">
         首次启动会自动下载运行组件（仅一次）。<span id="launchHintKey"><a class="link" data-goto="account">登录账户</a>后自动配好专属 Key，无需手动设置。</span>
+      </div>
+      <div class="hint-bar warn">
+        ⚠️ 如果启动后 Claude Code 报证书错误 / 连接失败，请<b>彻底退出 VPN / Clash</b>（右下角托盘图标右键退出，仅关闭窗口无效）——代理的 TUN 网卡会拦截连接。退出后重新点启动即可。
       </div>
     </section>
 
