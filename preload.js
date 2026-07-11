@@ -4,7 +4,6 @@ contextBridge.exposeInMainWorld("fy", {
   launch: (tool) => ipcRenderer.invoke("launch", tool),
   getConfig: () => ipcRenderer.invoke("get-config"),
   saveConfig: (cfg) => ipcRenderer.invoke("save-config", cfg),
-  setTab: (tab) => ipcRenderer.invoke("set-tab", tab),
   winCtl: (action) => ipcRenderer.invoke("win-ctl", action),
   ping: (baseUrl) => ipcRenderer.invoke("ping", baseUrl),
   binStatus: () => ipcRenderer.invoke("bin-status"),

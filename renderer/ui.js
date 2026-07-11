@@ -5,15 +5,11 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 
 /* ── 页签 ── */
-const NATIVE_PAGES = { launch: "#page-launch", settings: "#page-settings" };
-let activeTab = "launch";
+const PAGES = { launch: "#page-launch", settings: "#page-settings" };
 
-async function setTab(tab) {
-  activeTab = tab;
+function setTab(tab) {
   $$(".nav-item").forEach((el) => el.classList.toggle("active", el.dataset.tab === tab));
-  for (const [name, sel] of Object.entries(NATIVE_PAGES)) $(sel).hidden = name !== tab;
-  // 控制台/教程 = 主进程把网站 WebContentsView 叠在主区上；原生页签则隐藏它
-  await window.fy.setTab(tab);
+  for (const [name, sel] of Object.entries(PAGES)) $(sel).hidden = name !== tab;
   if (tab === "launch") refreshBinStatus();
   if (tab === "settings") loadSettingsForm();
 }

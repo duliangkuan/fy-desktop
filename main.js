@@ -1,25 +1,15 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, Menu, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const { spawn, execFileSync } = require("child_process");
 const https = require("https");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
 
-// 线上网站（改内容/课程/UI 只需网站侧 deploy，桌面端自动同步）
-const SITE_URL = process.env.FY_SITE_URL || "https://fy.dufengyun.xyz";
 // CLI 二进制下载源：优先 ECS（杭州，国内快），失败兜底 GitHub Release
 const BIN_SOURCES = [
   "https://api.dufengyun.xyz/download",
   "https://github.com/duliangkuan/fy-desktop/releases/download/binaries",
 ];
-// 与 renderer/ui.css 的布局常量保持一致
-const TITLEBAR_H = 40;
-const SIDEBAR_W = 216;
-// 内嵌网站页签 → 目标 URL
-const SITE_TABS = {
-  console: `${SITE_URL}/console/keys`,
-  learn: `${SITE_URL}/learn`,
-};
 
 const configPath = () => path.join(app.getPath("userData"), "config.json");
 const binDir = () => path.join(app.getPath("userData"), "bin");
@@ -35,24 +25,7 @@ function saveConfig(cfg) {
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
 }
 
-let win, siteView;
-let activeSiteTab = null; // 当前显示的网站页签（console/learn），原生页签时为 null
-
-function layoutSiteView() {
-  if (!win || !siteView) return;
-  const { width, height } = win.getContentBounds();
-  if (activeSiteTab) {
-    siteView.setBounds({
-      x: SIDEBAR_W,
-      y: TITLEBAR_H,
-      width: width - SIDEBAR_W,
-      height: height - TITLEBAR_H,
-    });
-  } else {
-    // 原生页签：把视图移出可视区（setVisible 在部分版本闪烁，挪走最稳）
-    siteView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-  }
-}
+let win;
 
 function createWindow() {
   const cfg = loadConfig();
@@ -71,22 +44,6 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
-
-  siteView = new WebContentsView({ webPreferences: { partition: "persist:site" } });
-  win.contentView.addChildView(siteView);
-  const ua = siteView.webContents.getUserAgent() + " FYDesktop/2.0";
-  siteView.webContents.setUserAgent(ua);
-  // 预热首个网站页签，切过去即显示
-  siteView.webContents.loadURL(SITE_TABS.console);
-
-  layoutSiteView();
-  win.on("resize", layoutSiteView);
-  win.on("maximize", layoutSiteView);
-  win.on("unmaximize", layoutSiteView);
-  siteView.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: "deny" };
-  });
 }
 
 // ── 下载文件（带进度 + 跟随重定向，GitHub 下载会 302）──
@@ -283,16 +240,6 @@ ipcMain.handle("bin-status", () => {
   return st;
 });
 
-ipcMain.handle("set-tab", (_e, tab) => {
-  const wasSiteTab = activeSiteTab;
-  activeSiteTab = SITE_TABS[tab] ? tab : null;
-  // 换到另一个网站页签才重新导航；同页签来回切保留浏览状态
-  if (activeSiteTab && activeSiteTab !== wasSiteTab) {
-    siteView.webContents.loadURL(SITE_TABS[activeSiteTab]);
-  }
-  layoutSiteView();
-});
-
 ipcMain.handle("win-ctl", (_e, action) => {
   if (!win) return;
   if (action === "minimize") win.minimize();
@@ -322,11 +269,6 @@ app.whenReady().then(() => {
       await win.webContents.executeJavaScript(`document.getElementById('themeBtn').click()`);
       await new Promise((r) => setTimeout(r, 600));
       await snap("settings-dark");
-      // 控制台页签：网站加载到 siteView 里，单独截它的 webContents
-      await win.webContents.executeJavaScript(`document.querySelector('[data-tab="console"]').click()`);
-      await new Promise((r) => setTimeout(r, 4000));
-      const siteImg = await siteView.webContents.capturePage();
-      fs.writeFileSync(path.join(shotDir, "fy-console-siteview.png"), siteImg.toPNG());
       app.quit();
     });
   }
