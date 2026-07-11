@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, dialog } = require("electron");
 const { spawn, execFileSync } = require("child_process");
 const https = require("https");
 const http = require("http");
@@ -169,7 +169,10 @@ async function launchCli(tool) {
     exe = await ensureBinary(tool);
   } catch (e) {
     sendProgress({ tool, phase: "error" });
-    return { ok: false, error: `下载 ${tool === "codex" ? "Codex" : "Claude Code"} 失败：${e.message}` };
+    return {
+      ok: false,
+      error: `下载 ${tool === "codex" ? "Codex" : "Claude Code"} 失败：${e.message}\n\n如果你开着 VPN/代理，请先关掉或把 dufengyun.xyz 设为直连，再点启动重试。`,
+    };
   }
 
   // 写一个 .bat 启动脚本，绕开「中文安装路径 + 引号嵌套」把命令拼坏的问题。
@@ -283,6 +286,9 @@ ipcMain.handle("save-config", (_e, cfg) => {
 ipcMain.handle("app-version", () => app.getVersion());
 ipcMain.handle("ping", (_e, baseUrl) => pingGateway(baseUrl));
 ipcMain.handle("api", (_e, pathname, opts) => apiFetch(pathname, opts || {}));
+ipcMain.handle("msgbox", (_e, message) =>
+  dialog.showMessageBox(win, { type: "warning", title: "EasyCC", message, buttons: ["确定"] })
+);
 
 ipcMain.handle("bin-status", () => {
   const st = {};

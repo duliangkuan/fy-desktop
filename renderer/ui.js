@@ -370,7 +370,7 @@ $$("[data-launch]").forEach((btn) =>
     try {
       const r = await window.fy.launch(btn.dataset.launch);
       if (!r.ok) {
-        alert(r.error);
+        await window.fy.msgbox(r.error);
         setTab(me ? "settings" : "account");
       }
     } finally {
