@@ -34,7 +34,8 @@ jobs:
       - run: npm ci
 
       - name: Build dmg (unsigned)
-        run: npx electron-builder --mac dmg --${{ matrix.arch }}
+        # --publish never：CI 环境下 electron-builder 默认想发 Release，没 token 会直接报错
+        run: npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
