@@ -48,6 +48,11 @@
       </div>
     </div>
     <div class="side-foot">
+      <button class="star-btn" data-open="repo" title="在 GitHub 给 EasyCC 点个 Star">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17.3 5.8 20.9l1.6-6.8L2.2 8.9l6.9-.6z"/></svg>
+        <span>⭐ 卑微求个 Star</span>
+      </button>
+      <button class="about-btn" id="aboutBtn" title="联系作者 / 关于">关于 · 联系作者</button>
       <span class="ver" id="verText"></span>
       <span class="ver">开源 · MIT · 无账户无追踪</span>
     </div>
@@ -100,17 +105,23 @@
       </div>
     </section>
 
-    <!-- Skill 商店 -->
+    <!-- Skill 商店（跳转 GitHub 开源目录） -->
     <section class="page" id="page-skills" hidden>
       <div class="page-head">
         <h1>Skill 商店</h1>
-        <p>给 Claude Code 装技能：全部免费开源，一键安装，重启 CC 生效</p>
+        <p>给 Claude Code 装技能——全部免费开源，托管在 GitHub，去仓库挑选并按说明安装</p>
       </div>
-      <div id="skillList" class="skill-grid"><p class="field-help">加载中…</p></div>
-      <p class="field-help" id="skillMsg">&nbsp;</p>
+      <div class="jump-card">
+        <svg class="jump-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.2L19 10l-5.1 1.8L12 17l-1.9-5.2L5 10l5.1-1.8z"/><path d="M19 15l.9 2.4L22 18l-2.1.8L19 21l-.9-2.2L16 18l2.1-.6z"/></svg>
+        <div class="jump-title">EasyCC 免费 Skill 开源目录</div>
+        <p class="jump-desc">
+          Skill 全部开源、持续更新。点下方按钮在浏览器打开 GitHub 仓库，按 README 说明把
+          Skill 放进 <code>~/.claude/skills/</code>，重启 Claude Code 即生效。也欢迎提 PR 投稿你的 Skill。
+        </p>
+        <button class="btn btn-launch" data-open="skills-repo">在 GitHub 浏览 Skill 目录 ↗</button>
+      </div>
       <div class="hint-bar">
-        Skill 目录托管在开源仓库
-        <b>github.com/duliangkuan/easycc-skills</b>，欢迎提 PR 投稿你的 Skill。
+        仓库地址：<b>github.com/duliangkuan/easycc-skills</b>
       </div>
     </section>
 
@@ -138,27 +149,18 @@
     <section class="page" id="page-settings" hidden>
       <div class="page-head">
         <h1>设置 · 接入</h1>
-        <p>用你自己的 API Key 驱动 Claude Code——数据只在你和服务商之间，EasyCC 不经手</p>
+        <p>模型广场：挑一家国产大模型服务商，填你自己的 API Key 即可驱动 Claude Code——数据只在你和服务商之间，EasyCC 不经手</p>
       </div>
       <div class="panel">
-        <label class="field-label">接入服务商</label>
-        <div class="model-chips" id="providerChips">
-          <button class="model-chip" data-provider="deepseek">
-            <b>DeepSeek 官方</b><span>推荐 · 注册即得 Key</span>
-          </button>
-          <button class="model-chip" data-provider="siliconflow">
-            <b>硅基流动</b><span>多模型可选</span>
-          </button>
-          <button class="model-chip" data-provider="custom">
-            <b>自定义</b><span>任意 Anthropic 兼容接口</span>
-          </button>
-        </div>
+        <label class="field-label">接入服务商（模型广场）</label>
+        <div class="model-chips" id="providerChips"></div>
         <p class="field-help" id="providerHelp">&nbsp;</p>
 
         <label class="field-label">API Key</label>
         <div class="field-row">
           <input id="apiKey" type="password" class="input mono" placeholder="粘贴你的 API Key" spellcheck="false" />
           <button class="btn btn-ghost" id="eyeBtn" title="显示/隐藏">显示</button>
+          <button class="btn btn-ghost" id="getKeyBtn" hidden>去拿 Key ↗</button>
         </div>
 
         <div id="customFields" hidden>
@@ -190,6 +192,40 @@
     </section>
 
   </main>
+</div>
+
+<!-- ══ 首次启动引导 / 关于（求 Star + 作者微信）══ -->
+<div id="onboard" class="onboard-overlay" hidden>
+  <div class="onboard-card">
+    <button class="onboard-close" id="onboardClose" title="关闭">✕</button>
+    <img class="onboard-logo" src="assets/logo.svg" alt="" draggable="false" />
+    <h2 class="onboard-title">欢迎使用 EasyCC 👋</h2>
+    <p class="onboard-sub">三分钟用上 Claude Code——用你自己的国产大模型 API，不用翻墙、不用海外订阅。</p>
+
+    <div class="onboard-steps">
+      <div class="onboard-step"><span>1</span><div><b>选服务商 · 填 Key</b><p>「设置 · 接入」的模型广场挑一家（推荐 DeepSeek），粘贴你自己的 API Key</p></div></div>
+      <div class="onboard-step"><span>2</span><div><b>点启动</b><p>回启动页点「▶ 启动」，首次自动下载运行组件（仅一次）</p></div></div>
+      <div class="onboard-step"><span>3</span><div><b>开始写代码</b><p>在弹出的终端里对话式写代码、改项目、跑任务</p></div></div>
+    </div>
+
+    <div class="onboard-star">
+      <div class="onboard-star-text">
+        <b>🙏 卑微求个 Star</b>
+        <p>EasyCC 完全免费开源，作者是个一人公司。如果它帮到你，去 GitHub 点颗 ⭐ 就是对我最大的鼓励！</p>
+      </div>
+      <button class="btn onboard-star-btn" data-open="repo">⭐ 去 GitHub 点 Star</button>
+    </div>
+
+    <div class="onboard-wechat">
+      <img src="assets/wechat-qr.jpg" alt="作者微信二维码" draggable="false" />
+      <div>
+        <b>加作者微信</b>
+        <p>交流 AI 工具玩法、反馈问题、催更新——扫码加我（Olando 风云）。</p>
+      </div>
+    </div>
+
+    <button class="btn onboard-start" id="onboardStart">开始使用 →</button>
+  </div>
 </div>
 
 <script src="ui.js"></script>

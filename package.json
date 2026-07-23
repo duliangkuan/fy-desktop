@@ -1,12 +1,13 @@
 {
   "name": "fy-desktop",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "EasyCC：装上就能用 Claude Code / Codex 的桌面工具",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis",
-    "dist:full": "electron-builder --win nsis --config.extraResources=cli-bundle --config.nsis.artifactName=EasyCC-Full-Setup-${version}.exe"
+    "dist:full": "electron-builder --win nsis --config.extraResources=cli-bundle --config.nsis.artifactName=EasyCC-Full-Setup-${version}.exe",
+    "dist:mac": "electron-builder --mac dmg"
   },
   "author": "风云",
   "devDependencies": {
@@ -27,10 +28,6 @@
     ],
     "extraResources": [
       {
-        "from": "vendor-node/node.exe",
-        "to": "node/node.exe"
-      },
-      {
         "from": "relay-worker.js",
         "to": "relay-worker.js"
       }
@@ -38,6 +35,26 @@
     "win": {
       "target": [
         "nsis"
+      ],
+      "extraResources": [
+        {
+          "from": "vendor-node/node.exe",
+          "to": "node/node.exe"
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "identity": null,
+      "category": "public.app-category.developer-tools",
+      "artifactName": "EasyCC-${version}-${arch}.dmg",
+      "extraResources": [
+        {
+          "from": "vendor-node-mac/node",
+          "to": "node/node"
+        }
       ]
     },
     "nsis": {

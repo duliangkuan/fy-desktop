@@ -1,0 +1,44 @@
+# macOS 安装包（dmg）只能在 macOS 上打：electron-builder 的 mac 目标依赖 hdiutil。
+# 本地 Windows 打不了 → 用 GitHub Actions 的 macos 跑机。手动触发或打 v* tag 触发。
+name: build-mac
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  dmg:
+    runs-on: macos-14
+    strategy:
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # relay 必须用 OpenSSL 的 node（见 main.js relayNodeExe）→ 按目标架构
+      # 从 nodejs.org 下官方单文件 node 打进 resources/node/node
+      - name: Prepare bundled relay node (${{ matrix.arch }})
+        run: |
+          NODE_VER=v22.12.0
+          curl -fsSL "https://nodejs.org/dist/${NODE_VER}/node-${NODE_VER}-darwin-${{ matrix.arch }}.tar.gz" -o /tmp/node.tar.gz
+          tar -xzf /tmp/node.tar.gz -C /tmp
+          mkdir -p vendor-node-mac
+          cp "/tmp/node-${NODE_VER}-darwin-${{ matrix.arch }}/bin/node" vendor-node-mac/node
+          chmod +x vendor-node-mac/node
+
+      - run: npm ci
+
+      - name: Build dmg (unsigned)
+        run: npx electron-builder --mac dmg --${{ matrix.arch }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EasyCC-mac-${{ matrix.arch }}
+          path: dist/*.dmg

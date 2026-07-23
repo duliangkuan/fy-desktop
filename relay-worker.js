@@ -9,7 +9,7 @@ const http = require("http");
 const https = require("https");
 
 const UP = process.env.RELAY_UPSTREAM || "https://api.deepseek.com/anthropic";
-const MAIN = process.env.RELAY_MODEL || "deepseek-chat";
+const MAIN = process.env.RELAY_MODEL || "deepseek-v4-flash";
 const SMALL = process.env.RELAY_SMALL || MAIN;
 const target = new URL(UP);
 const basePath = target.pathname.replace(/\/+$/, ""); // 支持带路径的上游（如 /anthropic）
@@ -41,6 +41,15 @@ const server = http.createServer((req, res) => {
     }
     const headers = { ...req.headers, host: target.hostname };
     headers["content-length"] = Buffer.byteLength(body);
+    // 认证头兼容：各厂商 Anthropic 兼容层约定不一（x-api-key vs Authorization: Bearer）。
+    // CC 用 ANTHROPIC_AUTH_TOKEN 时只发 Bearer。这里把 token 同时补成两种头，
+    // 让任意约定的上游都能通过（服务端忽略它不认的那个），模型广场各家即插即用。
+    const bearer = /^Bearer\s+(.+)$/i.exec(headers["authorization"] || "");
+    const token = headers["x-api-key"] || (bearer && bearer[1]);
+    if (token) {
+      headers["x-api-key"] = token;
+      headers["authorization"] = "Bearer " + token;
+    }
     const mod = target.protocol === "http:" ? http : https;
     const up = mod.request(
       {

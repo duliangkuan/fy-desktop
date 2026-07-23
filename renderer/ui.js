@@ -4,29 +4,80 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 
-/* ── 接入服务商预设（BYOK 模板）── */
+/* ── 模型广场：接入服务商预设（BYOK 模板）──
+   数据经官方文档核验（2026-07-14）。base URL / 认证约定相对稳定；
+   模型名换代快，故一律做成「可编辑提示」（datalist），用户可自行覆盖填当前型号。 */
 const PROVIDERS = {
   deepseek: {
-    name: "DeepSeek 官方",
+    name: "DeepSeek 官方", tag: "推荐 · 注册即得",
     baseUrl: "https://api.deepseek.com/anthropic",
-    models: ["deepseek-chat", "deepseek-reasoner"],
-    defaultModel: "deepseek-chat",
-    help: "去 platform.deepseek.com 注册 → 充值（10 元起）→ API Keys 页创建 Key 粘到下面",
+    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
+    defaultModel: "deepseek-v4-flash",
+    keyUrl: "https://platform.deepseek.com/api_keys",
+    help: "注册充值（10 元起）→ 创建 API Key 粘到下面。旧名 deepseek-chat/reasoner 已于 2026-07-24 下线，改用 v4-flash（便宜快）或 v4-pro（更强）。",
+  },
+  qwen: {
+    name: "阿里 Qwen 百炼", tag: "通义千问 · 编程强",
+    baseUrl: "https://dashscope.aliyuncs.com/apps/anthropic",
+    models: ["qwen3.7-plus", "qwen3.7-max", "qwen3.6-flash"],
+    defaultModel: "qwen3.7-plus",
+    keyUrl: "https://bailian.console.aliyun.com/",
+    help: "阿里云百炼控制台创建 API-KEY。编程推荐 qwen3.7-plus / qwen3.7-max。",
+  },
+  glm: {
+    name: "智谱 GLM", tag: "GLM-5.2 · 逼近旗舰",
+    baseUrl: "https://open.bigmodel.cn/api/anthropic",
+    models: ["glm-5.2"],
+    defaultModel: "glm-5.2",
+    keyUrl: "https://bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    help: "智谱开放平台创建 Key。GLM-5.2 面向编程与长程任务，是当前旗舰。",
+  },
+  kimi: {
+    name: "月之暗面 Kimi", tag: "K2.7 Code",
+    baseUrl: "https://api.moonshot.cn/anthropic",
+    models: ["kimi-k2.7-code", "kimi-k2.7-code-highspeed"],
+    defaultModel: "kimi-k2.7-code",
+    keyUrl: "https://platform.kimi.com/console/api-keys",
+    help: "Kimi 开放平台创建 Key。highspeed 为高速版。",
+  },
+  hunyuan: {
+    name: "腾讯混元", tag: "Hunyuan 2.0",
+    baseUrl: "https://api.hunyuan.cloud.tencent.com/anthropic",
+    models: ["hunyuan-2.0-instruct-20251111", "hunyuan-2.0-thinking-20251109"],
+    defaultModel: "hunyuan-2.0-instruct-20251111",
+    keyUrl: "https://console.cloud.tencent.com/hunyuan",
+    help: "腾讯云控制台创建 API Key。模型名带日期戳会滚动更新，若报错请到控制台复制最新版本名填入。",
+  },
+  minimax: {
+    name: "MiniMax", tag: "M3 · 长上下文",
+    baseUrl: "https://api.minimaxi.com/anthropic",
+    models: ["MiniMax-M3"],
+    defaultModel: "MiniMax-M3",
+    keyUrl: "https://platform.minimaxi.com/user-center/payment/token-plan",
+    help: "MiniMax 大陆平台创建 Key。海外版用 api.minimax.io（Key 不互通），可在「自定义」里填该域名。",
   },
   siliconflow: {
-    name: "硅基流动",
+    name: "硅基流动", tag: "多模型聚合",
     baseUrl: "https://api.siliconflow.cn",
-    models: ["deepseek-ai/DeepSeek-V3.2", "deepseek-ai/DeepSeek-V4-Flash", "Pro/deepseek-ai/DeepSeek-V3.2"],
-    defaultModel: "deepseek-ai/DeepSeek-V3.2",
-    help: "去 siliconflow.cn 注册 → API 密钥页创建 Key 粘到下面（新用户送额度）",
+    models: ["deepseek-ai/DeepSeek-V3.2", "Qwen/Qwen3-Coder", "moonshotai/Kimi-K2-Instruct"],
+    defaultModel: "",
+    keyUrl: "https://cloud.siliconflow.cn/account/ak",
+    help: "聚合多家开源模型。官方未固定 CC 专用型号，请到 cloud.siliconflow.cn/models 复制你要用的 model id 填到主模型（下方仅为常见示例，以模型库为准）。",
   },
   custom: {
-    name: "自定义",
+    name: "自定义", tag: "任意兼容接口",
     baseUrl: "",
     models: [],
     defaultModel: "",
-    help: "填任意 Anthropic 协议兼容的接口地址与 Key（支持自建网关 / 其他中转服务）",
+    keyUrl: "",
+    help: "填任意 Anthropic 协议兼容的接口地址与 Key（自建网关 / 其他中转 / 海外区域域名）。",
   },
+};
+
+/* ── 外链目标（在系统默认浏览器打开）── */
+const OPEN_URLS = {
+  repo: "https://github.com/duliangkuan/easycc",
+  "skills-repo": "https://github.com/duliangkuan/easycc-skills",
 };
 
 /* ── 页签 ── */
@@ -38,7 +89,6 @@ function setTab(tab) {
   $$(".nav-item").forEach((el) => el.classList.toggle("active", el.dataset.tab === tab));
   for (const name of PAGES) $(`#page-${name}`).hidden = name !== tab;
   if (tab === "launch") refreshBinStatus();
-  if (tab === "skills") loadSkills();
   if (tab === "memory") loadMemory();
   if (tab === "settings") loadSettingsForm();
 }
@@ -46,7 +96,9 @@ function setTab(tab) {
 $$(".nav-item").forEach((el) => el.addEventListener("click", () => setTab(el.dataset.tab)));
 document.addEventListener("click", (e) => {
   const goto = e.target.closest("[data-goto]");
-  if (goto) setTab(goto.dataset.goto);
+  if (goto) return setTab(goto.dataset.goto);
+  const open = e.target.closest("[data-open]");
+  if (open && OPEN_URLS[open.dataset.open]) window.fy.openExternal(OPEN_URLS[open.dataset.open]);
 });
 
 /* ── 标题栏 ── */
@@ -139,56 +191,6 @@ window.fy.onProgress((p) => {
   }
 });
 
-/* ══ Skill 商店（免费开源目录）══ */
-
-let installedSkills = [];
-
-async function loadSkills() {
-  const list = $("#skillList");
-  list.innerHTML = '<p class="field-help">加载中…</p>';
-  const [r, installed] = await Promise.all([window.fy.skillList(), window.fy.skillInstalled()]);
-  installedSkills = installed;
-  if (!r.ok) return (list.innerHTML = `<p class="field-help err">${esc(r.error)}</p>`);
-  if (!r.skills.length) return (list.innerHTML = '<p class="field-help">目录暂时为空</p>');
-  list.innerHTML = "";
-  for (const s of r.skills) list.appendChild(skillCard(s));
-}
-
-function skillCard(s) {
-  const el = document.createElement("div");
-  el.className = "tool-card skill-card";
-  const isInstalled = installedSkills.includes(s.slug);
-  el.innerHTML = `
-    <div class="skill-head">
-      <div class="tool-name">${esc(s.title)}</div>
-      <span class="chip on">免费</span>
-    </div>
-    <div class="tool-desc">${esc(s.subtitle || "")}</div>
-    <div class="tool-status">${s.version ? "v" + esc(s.version) + " · " : ""}${isInstalled ? "✓ 已安装（重启 CC 生效）" : "未安装"}</div>
-    <button class="btn btn-launch">${isInstalled ? "重新安装" : "安装到本地"}</button>`;
-  const btn = el.querySelector("button");
-  btn.addEventListener("click", async () => {
-    const msg = $("#skillMsg");
-    msg.className = "field-help";
-    btn.disabled = true;
-    msg.textContent = "下载安装中…";
-    try {
-      const inst = await window.fy.skillInstall(s.slug, s.file);
-      if (!inst.ok) {
-        msg.className = "field-help err";
-        msg.textContent = inst.error;
-        return;
-      }
-      msg.className = "field-help ok";
-      msg.textContent = `✓ 已安装「${s.title}」——重启 Claude Code 后生效（关掉 CC 窗口重新点启动）`;
-      loadSkills();
-    } finally {
-      btn.disabled = false;
-    }
-  });
-  return el;
-}
-
 function esc(x) {
   const d = document.createElement("span");
   d.textContent = x ?? "";
@@ -279,6 +281,24 @@ $("#memSaveBtn").addEventListener("click", async () => {
 /* ══ 设置 · 接入（BYOK）══ */
 
 let curProvider = "deepseek";
+let curKeyUrl = "";
+
+/** 模型广场：从 PROVIDERS 动态渲染服务商卡片 */
+function renderProviderChips() {
+  const wrap = $("#providerChips");
+  wrap.innerHTML = "";
+  for (const [id, p] of Object.entries(PROVIDERS)) {
+    const b = document.createElement("button");
+    b.className = "model-chip";
+    b.dataset.provider = id;
+    b.innerHTML = `<b>${esc(p.name)}</b><span>${esc(p.tag || "")}</span>`;
+    b.addEventListener("click", async () => {
+      const cfg = await window.fy.getConfig();
+      applyProviderUI(id, cfg);
+    });
+    wrap.appendChild(b);
+  }
+}
 
 function applyProviderUI(provider, cfg = {}) {
   curProvider = provider;
@@ -287,11 +307,13 @@ function applyProviderUI(provider, cfg = {}) {
     c.classList.toggle("active", c.dataset.provider === provider)
   );
   $("#providerHelp").textContent = p.help;
+  curKeyUrl = p.keyUrl || "";
+  $("#getKeyBtn").hidden = !curKeyUrl;
   $("#customFields").hidden = provider !== "custom";
   if (provider === "custom") {
     $("#baseUrl").value = cfg.baseUrl && cfg.provider === "custom" ? cfg.baseUrl : "";
   }
-  // 模型候选
+  // 模型候选（可编辑提示）
   const dl = $("#modelOptions");
   dl.innerHTML = p.models.map((m) => `<option value="${esc(m)}">`).join("");
   const useSaved = cfg.provider === provider;
@@ -299,14 +321,12 @@ function applyProviderUI(provider, cfg = {}) {
   $("#smallModelInput").value = useSaved && cfg.smallModel && cfg.smallModel !== cfg.model ? cfg.smallModel : "";
 }
 
-$$(".model-chip[data-provider]").forEach((c) =>
-  c.addEventListener("click", async () => {
-    const cfg = await window.fy.getConfig();
-    applyProviderUI(c.dataset.provider, cfg);
-  })
-);
+$("#getKeyBtn").addEventListener("click", () => {
+  if (curKeyUrl) window.fy.openExternal(curKeyUrl);
+});
 
 async function loadSettingsForm() {
+  if (!$("#providerChips").children.length) renderProviderChips();
   const cfg = await window.fy.getConfig();
   applyProviderUI(cfg.provider || "deepseek", cfg);
   $("#apiKey").value = cfg.apiKey || "";
@@ -361,11 +381,30 @@ async function checkConn() {
 }
 $("#connBtn").addEventListener("click", checkConn);
 
+/* ══ 首次启动引导 / 关于弹层 ══ */
+function openOnboard() {
+  $("#onboard").hidden = false;
+}
+async function closeOnboard() {
+  $("#onboard").hidden = true;
+  // 记录已看过引导：下次启动不再自动弹（写进用户 config）
+  const cfg = await window.fy.getConfig();
+  if (!cfg.onboarded) await window.fy.saveConfig({ ...cfg, onboarded: true });
+}
+$("#onboardStart").addEventListener("click", closeOnboard);
+$("#onboardClose").addEventListener("click", closeOnboard);
+$("#aboutBtn").addEventListener("click", openOnboard); // 底部「关于·联系作者」随时重开
+// 点遮罩空白处关闭
+$("#onboard").addEventListener("click", (e) => {
+  if (e.target.id === "onboard") closeOnboard();
+});
+
 /* ── 启动初始化 ── */
 (async () => {
   const cfg = await window.fy.getConfig();
   applyTheme(cfg.theme === "dark" ? "dark" : "light");
   $("#verText").textContent = "v" + (await window.fy.version());
   refreshBinStatus();
+  if (!cfg.onboarded) openOnboard(); // 首次启动自动弹引导
   setTimeout(runNetCheck, 2500); // 等 relay 起来后自检网络
 })();

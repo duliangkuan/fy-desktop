@@ -338,17 +338,91 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 }
 .diag-card code { font-family: Consolas, monospace; background: var(--elevated); padding: 1px 5px; border-radius: 4px; }
 
-/* ══ Skill 商店 ══ */
-.skill-grid {
-  margin-top: 24px;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+/* ══ Skill 商店（跳转卡）══ */
+.jump-card {
+  margin-top: 24px; max-width: 560px;
+  background: var(--surface); border: 1px solid transparent;
+  border-radius: 12px; box-shadow: var(--shadow);
+  padding: 28px 30px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  transition: border-color .12s;
 }
-.skill-card { min-height: 150px; }
-.skill-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.skill-head .tool-name { padding-right: 0; }
-.skill-card .tool-desc { margin-top: 6px; }
+.jump-card:hover { border-color: var(--accent); }
+.jump-icon { width: 42px; height: 42px; color: var(--accent); }
+.jump-title { font-size: 17px; font-weight: 700; }
+.jump-desc { color: var(--text-2); font-size: 13px; line-height: 1.85; }
+.jump-desc code { font-family: Consolas, monospace; background: var(--elevated); padding: 1px 6px; border-radius: 4px; }
+.jump-card .btn-launch { width: auto; margin-top: 4px; padding: 10px 26px; }
+
+/* ══ 侧边栏 Star 按钮（醒目：accent 填充）══ */
+.star-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 9px 10px; border-radius: 8px;
+  border: none; background: var(--accent); color: #fff;
+  font-size: 13px; font-weight: 700;
+  cursor: pointer; font-family: inherit; box-shadow: var(--shadow);
+  transition: background .12s, transform .08s;
+}
+.star-btn svg { width: 15px; height: 15px; flex: none; fill: #fff; stroke: #fff; }
+.star-btn:hover { background: var(--accent-deep); }
+.star-btn:active { transform: scale(.97); }
+.about-btn {
+  border: none; background: transparent; color: var(--text-3);
+  font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+  padding: 4px 10px; text-align: left; border-radius: 6px;
+  transition: background .12s, color .12s;
+}
+.about-btn:hover { background: var(--elevated); color: var(--text); }
+
+/* ══ 首次启动引导 / 关于 弹层 ══ */
+.onboard-overlay {
+  position: fixed; top: 40px; left: 0; right: 0; bottom: 0; z-index: 50;
+  background: color-mix(in srgb, var(--bg) 55%, rgba(0,0,0,.45));
+  backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; overflow-y: auto;
+}
+.onboard-card {
+  position: relative; width: 100%; max-width: 520px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; box-shadow: 0 12px 40px rgba(0,0,0,.28);
+  padding: 30px 32px; text-align: center;
+}
+.onboard-close {
+  position: absolute; top: 14px; right: 16px;
+  border: none; background: transparent; color: var(--text-3);
+  font-size: 16px; cursor: pointer; line-height: 1; padding: 4px 6px; border-radius: 6px;
+}
+.onboard-close:hover { background: var(--elevated); color: var(--text); }
+.onboard-logo { width: 40px; height: 40px; }
+.onboard-title { font-size: 20px; font-weight: 800; margin-top: 8px; }
+.onboard-sub { color: var(--text-2); font-size: 13px; line-height: 1.7; margin-top: 6px; }
+.onboard-steps { text-align: left; margin: 20px 0 4px; display: flex; flex-direction: column; gap: 10px; }
+.onboard-step { display: flex; gap: 11px; align-items: flex-start; }
+.onboard-step > span {
+  flex: none; width: 24px; height: 24px; border-radius: 99px;
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; margin-top: 1px;
+}
+.onboard-step b { font-size: 13.5px; }
+.onboard-step p { font-size: 12px; color: var(--text-2); line-height: 1.6; margin-top: 2px; }
+.onboard-star {
+  margin-top: 20px; padding: 16px 18px; border-radius: 12px; text-align: left;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.onboard-star-text b { font-size: 14px; color: var(--accent); }
+.onboard-star-text p { font-size: 12.5px; color: var(--text-2); line-height: 1.7; margin-top: 4px; }
+.onboard-star-btn { width: 100%; padding: 11px; font-size: 14px; }
+.onboard-wechat {
+  margin-top: 14px; padding: 14px 16px; border-radius: 12px;
+  background: var(--elevated); display: flex; gap: 14px; align-items: center; text-align: left;
+}
+.onboard-wechat img { width: 92px; height: 92px; border-radius: 8px; flex: none; background: #fff; object-fit: contain; }
+.onboard-wechat b { font-size: 13.5px; }
+.onboard-wechat p { font-size: 12px; color: var(--text-2); line-height: 1.6; margin-top: 4px; }
+.onboard-start { width: 100%; margin-top: 20px; padding: 11px; font-size: 14px; }
 
 /* ══ Memory ══ */
 .mem-bar { display: flex; align-items: center; gap: 10px; margin-top: 22px; }

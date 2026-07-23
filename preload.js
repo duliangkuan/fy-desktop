@@ -11,10 +11,8 @@ contextBridge.exposeInMainWorld("fy", {
   onProgress: (cb) => ipcRenderer.on("cli-progress", (_e, payload) => cb(payload)),
   // 网络自检（走 relay，与 CC 同路径）
   netCheck: () => ipcRenderer.invoke("net-check"),
-  // Skill 目录（开源仓，全部免费）
-  skillList: () => ipcRenderer.invoke("skill-list"),
-  skillInstalled: () => ipcRenderer.invoke("skill-installed"),
-  skillInstall: (slug, file) => ipcRenderer.invoke("skill-install", slug, file),
+  // 在系统默认浏览器打开外链
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
   // Memory 可视化
   memoryRead: () => ipcRenderer.invoke("memory-read"),
   memoryWrite: (content) => ipcRenderer.invoke("memory-write", content),

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell } = require("electron");
 const { spawn, execFileSync } = require("child_process");
 const https = require("https");
 const http = require("http");
@@ -11,11 +11,10 @@ const BIN_SOURCES = [
   "https://api.dufengyun.xyz/download",
   "https://github.com/duliangkuan/easycc/releases/download/binaries",
 ];
-// 免费 Skill 目录（开源仓 duliangkuan/easycc-skills），多源兜底
-const SKILL_SOURCES = [
-  "https://cdn.jsdelivr.net/gh/duliangkuan/easycc-skills@master",
-  "https://raw.githubusercontent.com/duliangkuan/easycc-skills/master",
-];
+// 免费 Skill 开源仓（应用内改为「跳转 GitHub 浏览」，不再应用内下载安装）
+const SKILLS_REPO_URL = "https://github.com/duliangkuan/easycc-skills";
+// 本项目开源仓（求 Star / 反馈入口）
+const REPO_URL = "https://github.com/duliangkuan/easycc";
 
 const configPath = () => path.join(app.getPath("userData"), "config.json");
 const binDir = () => path.join(app.getPath("userData"), "bin");
@@ -25,8 +24,9 @@ const DEFAULT_CONFIG = {
   provider: "deepseek",
   apiKey: "",
   baseUrl: "https://api.deepseek.com/anthropic",
-  model: "deepseek-chat",
-  smallModel: "deepseek-chat",
+  // deepseek-chat/reasoner 已于 2026-07-24 下线，默认用新款 v4-flash（便宜快）
+  model: "deepseek-v4-flash",
+  smallModel: "deepseek-v4-flash",
   theme: "light",
 };
 function loadConfig() {
@@ -49,8 +49,10 @@ let relayProc = null;
 // 纯 node 的 https 正常。CC 连本地 http 秒通 → worker 用 node https 转发到网关 + 改写模型名。
 function relayNodeExe() {
   // 必须用 OpenSSL 的 node（Electron 内嵌 node 是 BoringSSL，在 Clash TUN 下 TLS 握手失败）。
-  // 优先打包随附的 node.exe（resources/node/node.exe），否则回退系统 PATH 的 node。
-  const bundled = path.join(process.resourcesPath, "node", "node.exe");
+  // 优先打包随附的 node（Windows: resources/node/node.exe，mac: resources/node/node），
+  // 否则回退系统 PATH 的 node。
+  const nodeName = process.platform === "win32" ? "node.exe" : "node";
+  const bundled = path.join(process.resourcesPath, "node", nodeName);
   return fs.existsSync(bundled) ? bundled : "node";
 }
 function startCliProxy() {
@@ -165,20 +167,27 @@ function sendProgress(payload) {
 
 /**
  * 确保工具二进制就位：不在则从自托管源下载 + 缓存。
- * claude：单文件 claude.exe。codex：codex.tar.gz 解压到 codex/（Windows 自带 tar）。
+ * claude：单文件（Windows: claude.exe，mac: claude-darwin-<arch>）。
+ * codex：tar.gz 解压到 codex/（Windows 10+ / macOS 都自带 tar）。
  * 返回可执行文件的完整路径。
  */
+const isWin = () => process.platform === "win32";
+// 安装后本地的相对路径（与平台相关，与下载源文件名无关）
+function cliRelPath(tool) {
+  const ext = isWin() ? ".exe" : "";
+  return tool === "cc" ? `claude${ext}` : path.join("codex", "bin", `codex${ext}`);
+}
+// 下载源上的文件名：Windows 沿用旧名不动存量；mac 按架构区分
+function remoteName(tool) {
+  if (tool === "cc") return isWin() ? "claude.exe" : `claude-darwin-${process.arch}`;
+  return isWin() ? "codex.tar.gz" : `codex-darwin-${process.arch}.tar.gz`;
+}
 // 完整版把二进制打进了 resources/cli-bundle/，优先用它（零下载）
 function bundledPath(tool) {
-  const base = path.join(process.resourcesPath, "cli-bundle");
-  return tool === "cc"
-    ? path.join(base, "claude.exe")
-    : path.join(base, "codex", "bin", "codex.exe");
+  return path.join(process.resourcesPath, "cli-bundle", cliRelPath(tool));
 }
 function downloadedPath(tool) {
-  return tool === "cc"
-    ? path.join(binDir(), "claude.exe")
-    : path.join(binDir(), "codex", "bin", "codex.exe");
+  return path.join(binDir(), cliRelPath(tool));
 }
 
 async function ensureBinary(tool) {
@@ -189,28 +198,30 @@ async function ensureBinary(tool) {
     const exe = downloadedPath("cc");
     if (fs.existsSync(exe)) return exe;
     sendProgress({ tool, phase: "start", label: "Claude Code" });
-    await downloadWithFallback("claude.exe", exe, (p, got, total) =>
+    await downloadWithFallback(remoteName("cc"), exe, (p, got, total) =>
       sendProgress({ tool, phase: "downloading", percent: p, got, total, label: "Claude Code" })
     );
+    if (!isWin()) fs.chmodSync(exe, 0o755); // 自写下载不带可执行位
     sendProgress({ tool, phase: "done" });
     return exe;
   }
-  // codex（包内可执行在 bin/codex.exe）
+  // codex（包内可执行在 bin/codex[.exe]）
   const codexDir = path.join(binDir(), "codex");
   const exe = downloadedPath("codex");
   if (fs.existsSync(exe)) return exe;
   const tgz = path.join(binDir(), "codex.tar.gz");
   sendProgress({ tool, phase: "start", label: "Codex" });
-  await downloadWithFallback("codex.tar.gz", tgz, (p, got, total) =>
+  await downloadWithFallback(remoteName("codex"), tgz, (p, got, total) =>
     sendProgress({ tool, phase: "downloading", percent: p, got, total, label: "Codex" })
   );
   sendProgress({ tool, phase: "extracting" });
   fs.mkdirSync(codexDir, { recursive: true });
-  // Windows 10+ 自带 tar.exe
+  // Windows 10+ / macOS 都自带 tar
   execFileSync("tar", ["-xzf", tgz, "-C", codexDir]);
   fs.rmSync(tgz, { force: true });
   sendProgress({ tool, phase: "done" });
   if (!fs.existsSync(exe)) throw new Error("codex 解压后未找到可执行文件");
+  if (!isWin()) fs.chmodSync(exe, 0o755);
   return exe;
 }
 
@@ -218,8 +229,8 @@ async function launchCli(tool) {
   const cfg = loadConfig();
   if (!cfg.apiKey)
     return { ok: false, error: "请先在「设置」选择接入服务商并填入你自己的 API Key（如 DeepSeek 官方，注册即得）" };
-  if (process.platform !== "win32")
-    return { ok: false, error: "当前版本仅支持 Windows 启动 CLI" };
+  if (process.platform !== "win32" && process.platform !== "darwin")
+    return { ok: false, error: "当前版本仅支持 Windows / macOS 启动 CLI" };
 
   let exe;
   try {
@@ -232,24 +243,22 @@ async function launchCli(tool) {
     };
   }
 
-  // 写一个 .bat 启动脚本，绕开「中文安装路径 + 引号嵌套」把命令拼坏的问题。
-  // bat 放 ASCII 临时目录（用户名是 ASCII）；内部 chcp 65001 让 cmd 正确识别中文 exe 路径。
   const title = tool === "codex" ? "Codex" : "Claude Code";
 
   // ⭐清空代理环境变量：VPN/Clash 退出后常残留 HTTPS_PROXY 指向已死的本地代理，
   // 导致 CC(Node) 走坏代理、报 UNKNOWN_CERTIFICATE_VERIFICATION_ERROR。清掉后直连
   // 网关的合法证书。这是「关了 VPN 仍连不上」的根因修复。
-  const clearProxy = [
-    'set "HTTP_PROXY="',
-    'set "HTTPS_PROXY="',
-    'set "http_proxy="',
-    'set "https_proxy="',
-    'set "ALL_PROXY="',
-    'set "all_proxy="',
-    'set "NODE_EXTRA_CA_CERTS="',
+  const proxyVars = [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NODE_EXTRA_CA_CERTS",
   ];
 
-  let toolEnv;
+  let toolEnv; // [名, 值] 键值对，按平台渲染成 set / export
   if (tool === "codex") {
     // Codex 不认环境变量式 Key，必须用 config.toml 定义 model_provider。
     // 关键：wire_api="chat"（网关是 chat/completions 兼容，非 responses）、
@@ -270,7 +279,10 @@ async function launchCli(tool) {
       "",
     ].join("\n");
     fs.writeFileSync(path.join(codexHome, "config.toml"), configToml, "utf8");
-    toolEnv = [`set "FY_API_KEY=${cfg.apiKey}"`, `set "CODEX_HOME=${codexHome}"`];
+    toolEnv = [
+      ["FY_API_KEY", cfg.apiKey],
+      ["CODEX_HOME", codexHome],
+    ];
   } else {
     // Claude Code：几个坑一起治（全部经真机端到端验证）——
     // 1) 走本地转发代理（cliProxyPort），绕开 CC 直连 https 网关在 TUN 下卡死
@@ -300,74 +312,66 @@ async function launchCli(tool) {
       ? `http://127.0.0.1:${cliProxyPort}`
       : cfg.baseUrl; // 代理没起来的兜底：直连
     toolEnv = [
-      `set "ANTHROPIC_BASE_URL=${baseForCc}"`,
-      `set "ANTHROPIC_AUTH_TOKEN=${cfg.apiKey}"`,
-      `set "ANTHROPIC_MODEL=${cfg.model || DEFAULT_CONFIG.model}"`,
-      `set "ANTHROPIC_SMALL_FAST_MODEL=${cfg.smallModel || cfg.model || DEFAULT_CONFIG.smallModel}"`,
-      'set "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"',
-      'set "DISABLE_AUTOUPDATER=1"',
-      'set "DISABLE_TELEMETRY=1"',
-      'set "DISABLE_ERROR_REPORTING=1"',
+      ["ANTHROPIC_BASE_URL", baseForCc],
+      ["ANTHROPIC_AUTH_TOKEN", cfg.apiKey],
+      ["ANTHROPIC_MODEL", cfg.model || DEFAULT_CONFIG.model],
+      ["ANTHROPIC_SMALL_FAST_MODEL", cfg.smallModel || cfg.model || DEFAULT_CONFIG.smallModel],
+      ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"],
+      ["DISABLE_AUTOUPDATER", "1"],
+      ["DISABLE_TELEMETRY", "1"],
+      ["DISABLE_ERROR_REPORTING", "1"],
     ];
   }
 
-  // chcp 65001 必须在第一行（切 UTF-8 后，后面的中文 exe 路径才被正确读取）；不要加 BOM
-  const bat = [
-    "@chcp 65001 >nul",
-    "@echo off",
-    `title ${title}`,
-    ...clearProxy,
-    ...toolEnv,
-    `"${exe}"`,
-    "",
-  ].join("\r\n");
-  const batPath = path.join(require("os").tmpdir(), `fy-launch-${tool}.bat`);
-  fs.writeFileSync(batPath, bat, "utf8");
-  // ⭐start 的第一个参数是窗口标题：必须用带引号的空串 "" 占位。
-  // 之前直接传 title，"Codex"(无空格) 不被自动加引号 → start 把它当程序名去执行
-  // → codex.exe 收到 "/k" 报 unexpected argument。空 "" 占位后 cmd /k 正常执行，标题由 bat 内 title 设。
-  spawn("cmd.exe", ["/c", "start", "", "cmd", "/k", batPath], {
-    detached: true,
-    shell: false,
-    windowsHide: false,
-  });
-  return { ok: true };
-}
-
-// ── 多源 GET（Skill 目录用）：依次尝试各源，返回 Buffer ──
-function fetchFromSources(relPath, timeoutMs = 20000) {
-  const tryOne = (base) =>
-    new Promise((resolve, reject) => {
-      const req = https.get(`${base}/${relPath}`, (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          return reject(new Error(`HTTP ${res.statusCode}`));
-        }
-        const chunks = [];
-        res.on("data", (d) => chunks.push(d));
-        res.on("end", () => resolve(Buffer.concat(chunks)));
-      });
-      req.setTimeout(timeoutMs, () => {
-        req.destroy();
-        reject(new Error("超时"));
-      });
-      req.on("error", reject);
+  if (process.platform === "win32") {
+    // 写一个 .bat 启动脚本，绕开「中文安装路径 + 引号嵌套」把命令拼坏的问题。
+    // bat 放 ASCII 临时目录（用户名是 ASCII）；内部 chcp 65001 让 cmd 正确识别中文 exe 路径。
+    // chcp 65001 必须在第一行（切 UTF-8 后，后面的中文 exe 路径才被正确读取）；不要加 BOM
+    const bat = [
+      "@chcp 65001 >nul",
+      "@echo off",
+      `title ${title}`,
+      ...proxyVars.map((k) => `set "${k}="`),
+      ...toolEnv.map(([k, v]) => `set "${k}=${v}"`),
+      `"${exe}"`,
+      "",
+    ].join("\r\n");
+    const batPath = path.join(require("os").tmpdir(), `fy-launch-${tool}.bat`);
+    fs.writeFileSync(batPath, bat, "utf8");
+    // ⭐start 的第一个参数是窗口标题：必须用带引号的空串 "" 占位。
+    // 之前直接传 title，"Codex"(无空格) 不被自动加引号 → start 把它当程序名去执行
+    // → codex.exe 收到 "/k" 报 unexpected argument。空 "" 占位后 cmd /k 正常执行，标题由 bat 内 title 设。
+    spawn("cmd.exe", ["/c", "start", "", "cmd", "/k", batPath], {
+      detached: true,
+      shell: false,
+      windowsHide: false,
     });
-  return (async () => {
-    let lastErr;
-    for (const base of SKILL_SOURCES) {
-      try {
-        return await tryOne(base);
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    throw lastErr || new Error("所有源均失败");
-  })();
+  } else {
+    // macOS：写 shell 启动脚本，open -a Terminal 在新终端窗口里执行。
+    // 值里只做双引号内转义（\ $ ` "），API Key / 路径都安全。
+    const shq = (s) => `"${String(s).replace(/([\\"$`])/g, "\\$1")}"`;
+    const sh = [
+      "#!/bin/bash",
+      `printf '\\033]0;${title}\\007'`, // 终端窗口标题
+      `unset ${proxyVars.join(" ")}`,
+      ...toolEnv.map(([k, v]) => `export ${k}=${shq(v)}`),
+      `exec ${shq(exe)}`,
+      "",
+    ].join("\n");
+    const shPath = path.join(require("os").tmpdir(), `fy-launch-${tool}.command`);
+    fs.writeFileSync(shPath, sh, "utf8");
+    fs.chmodSync(shPath, 0o755);
+    spawn("open", ["-a", "Terminal", shPath], { detached: true });
+  }
+  return { ok: true };
 }
 
 // ── IPC ──
 ipcMain.handle("launch", (_e, tool) => launchCli(tool));
+// 在系统默认浏览器打开外链（Skill 商店跳转 / 求 Star / 反馈）
+ipcMain.handle("open-external", (_e, url) => {
+  if (typeof url === "string" && /^https?:\/\//.test(url)) shell.openExternal(url);
+});
 ipcMain.handle("get-config", () => loadConfig());
 ipcMain.handle("save-config", (_e, cfg) => {
   const prev = loadConfig();
@@ -401,52 +405,6 @@ ipcMain.handle("net-check", () => {
     });
     req.on("error", (e) => resolve({ ok: false, error: e.message }));
   });
-});
-
-// ── Skill：已安装列表 / 下载安装到 ~/.claude/skills/<slug>/ ──
-const skillsDir = () => path.join(require("os").homedir(), ".claude", "skills");
-
-ipcMain.handle("skill-installed", () => {
-  try {
-    return fs.readdirSync(skillsDir(), { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-  } catch {
-    return [];
-  }
-});
-
-// Skill 目录：开源仓 index.json（jsDelivr 主源 + GitHub raw 兜底），全部免费
-ipcMain.handle("skill-list", async () => {
-  try {
-    const buf = await fetchFromSources("index.json");
-    const idx = JSON.parse(buf.toString("utf8"));
-    return { ok: true, skills: idx.skills || [] };
-  } catch (e) {
-    return { ok: false, error: `目录加载失败：${e.message}（稍后重试）` };
-  }
-});
-
-ipcMain.handle("skill-install", async (_e, slug, file) => {
-  if (!/^[\w-]+$/.test(slug)) return { ok: false, error: "非法 slug" };
-  if (!/^[\w\-./]+\.zip$/.test(file || "") || file.includes(".."))
-    return { ok: false, error: "非法文件路径" };
-  try {
-    const buf = await fetchFromSources(file, 60000);
-    // 防御：确认是 zip（PK 头），不是的话给人话错误而不是 tar 的天书
-    if (buf[0] !== 0x50 || buf[1] !== 0x4b)
-      return { ok: false, error: "该 Skill 的安装包格式异常，请到 GitHub 反馈" };
-    const tmp = path.join(require("os").tmpdir(), `easycc-skill-${slug}.zip`);
-    fs.writeFileSync(tmp, buf);
-    const dest = path.join(skillsDir(), slug);
-    fs.rmSync(dest, { recursive: true, force: true });
-    fs.mkdirSync(dest, { recursive: true });
-    execFileSync("tar", ["-xf", tmp, "-C", dest]); // Win10+ bsdtar 支持 zip
-    fs.rmSync(tmp, { force: true });
-    return { ok: true, dest };
-  } catch (e) {
-    return { ok: false, error: `安装失败：${e.message}` };
-  }
 });
 
 // ── Memory：读写 ~/.claude/CLAUDE.md + fs.watch 实时推送 ──
@@ -526,43 +484,6 @@ app.whenReady().then(() => {
       console.log("NET2 " + (await tryReq("realIP+SNI", { host: "115.29.233.78", servername: "api.dufengyun.xyz", port: 443, path: "/", method: "GET", headers: { host: "api.dufengyun.xyz" } })));
       app.quit();
     })();
-    return;
-  }
-
-  // FY_SKILL_TEST=1：真机点「安装到本地」，验证下载+解压落盘
-  if (process.env.FY_SKILL_TEST) {
-    createWindow();
-    win.webContents.once("did-finish-load", async () => {
-      try {
-        await new Promise((r) => setTimeout(r, 2500));
-        await win.webContents.executeJavaScript(`document.querySelector('[data-tab="skills"]').click()`);
-        console.log("SKILLTEST step1 clicked skills tab");
-        // 等到安装按钮出现（列表加载完）再点
-        for (let i = 0; i < 20; i++) {
-          const n = await win.webContents.executeJavaScript(
-            `document.querySelectorAll('.skill-card .btn-launch').length`
-          );
-          if (n > 0) break;
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-        const clicked = await win.webContents.executeJavaScript(
-          `(()=>{const b=document.querySelector('.skill-card .btn-launch');if(!b)return false;b.click();return true})()`
-        );
-        console.log("SKILLTEST step2 install clicked=" + clicked);
-        await new Promise((r) => setTimeout(r, 15000));
-        const msg = await win.webContents.executeJavaScript(
-          `document.getElementById('skillMsg').textContent`
-        );
-        console.log("SKILLTEST msg=[" + String(msg).trim() + "]");
-      } catch (e) {
-        console.log("SKILLTEST ERROR " + e.message);
-      }
-      for (const d of ["skill-deai-pro", "skill-shuo-zhongdian"]) {
-        const p = path.join(require("os").homedir(), ".claude", "skills", d, "SKILL.md");
-        console.log("SKILLTEST " + d + " SKILL.md=" + fs.existsSync(p));
-      }
-      app.quit();
-    });
     return;
   }
 
